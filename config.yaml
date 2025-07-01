@@ -1,0 +1,16 @@
+services:
+  - name: service1
+    basePath: /api/v1
+    endpoints:
+      - path: /users
+        method: GET
+        responseFile: ./mocks/users.json
+      - path: /orders
+        method: POST
+        responseFile: ./mocks/orders.json
+  - name: service2
+    basePath: /api/v2
+    endpoints:
+      - path: /products
+        method: GET
+        responseFile: ./mocks/products.json

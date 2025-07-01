@@ -1,0 +1,8 @@
+{
+  "orderId": "12345",
+  "status": "processing",
+  "items": [
+    {"id": 1, "name": "Product A", "quantity": 2},
+    {"id": 2, "name": "Product B", "quantity": 1}
+  ]
+}
