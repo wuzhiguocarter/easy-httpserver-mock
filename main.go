@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"io/ioutil"
 	"log"
+	"net"
 	"path/filepath"
 	"sync"
 
@@ -13,8 +14,8 @@ import (
 )
 
 type Endpoint struct {
-	Path        string `yaml:"path"`
-	Method      string `yaml:"method"`
+	Path         string `yaml:"path"`
+	Method       string `yaml:"method"`
 	ResponseFile string `yaml:"responseFile"`
 }
 
@@ -25,6 +26,7 @@ type Service struct {
 }
 
 type Config struct {
+	Port     int       `yaml:"port"`
 	Services []Service `yaml:"services"`
 }
 
@@ -33,13 +35,13 @@ func loadConfig(filename string) (*Config, error) {
 	if err != nil {
 		return nil, err
 	}
-	
+
 	var config Config
 	err = yaml.Unmarshal(data, &config)
 	if err != nil {
 		return nil, err
 	}
-	
+
 	return &config, nil
 }
 
@@ -48,23 +50,23 @@ func readJSONFile(filePath string) ([]byte, error) {
 	if err != nil {
 		return nil, err
 	}
-	
+
 	data, err := ioutil.ReadFile(absPath)
 	if err != nil {
 		return nil, err
 	}
-	
+
 	return data, nil
 }
 
 func setupRouter(config *Config) *gin.Engine {
 	r := gin.Default()
-	
+
 	for _, service := range config.Services {
 		for _, endpoint := range service.Endpoints {
 			fullPath := service.BasePath + endpoint.Path
 			responseFile := endpoint.ResponseFile
-			
+
 			switch endpoint.Method {
 			case "GET":
 				r.GET(fullPath, func(c *gin.Context) {
@@ -87,8 +89,23 @@ func setupRouter(config *Config) *gin.Engine {
 			}
 		}
 	}
-	
+
 	return r
+}
+
+func getLocalIP() (string, error) {
+	addrs, err := net.InterfaceAddrs()
+	if err != nil {
+		return "", err
+	}
+	for _, addr := range addrs {
+		if ipnet, ok := addr.(*net.IPNet); ok && !ipnet.IP.IsLoopback() {
+			if ipnet.IP.To4() != nil {
+				return ipnet.IP.String(), nil
+			}
+		}
+	}
+	return "", fmt.Errorf("no valid IP address found")
 }
 
 func main() {
@@ -96,23 +113,23 @@ func main() {
 	if err != nil {
 		log.Fatalf("Failed to load config: %v", err)
 	}
-	
+
 	var configLock sync.RWMutex
 	r := setupRouter(config)
-	
+
 	// 创建文件监控
 	watcher, err := fsnotify.NewWatcher()
 	if err != nil {
 		log.Fatalf("Failed to create watcher: %v", err)
 	}
 	defer watcher.Close()
-	
+
 	// 添加配置文件到监控
 	err = watcher.Add("./config.yaml")
 	if err != nil {
 		log.Printf("Failed to watch config file: %v", err)
 	}
-	
+
 	// 添加所有JSON响应文件到监控
 	for _, service := range config.Services {
 		for _, endpoint := range service.Endpoints {
@@ -122,7 +139,7 @@ func main() {
 			}
 		}
 	}
-	
+
 	// 启动文件监控协程
 	go func() {
 		for {
@@ -133,7 +150,7 @@ func main() {
 				}
 				if event.Op&fsnotify.Write == fsnotify.Write {
 					log.Printf("File modified: %s", event.Name)
-					
+
 					// 重新加载配置
 					configLock.Lock()
 					newConfig, err := loadConfig("./config.yaml")
@@ -142,7 +159,7 @@ func main() {
 						configLock.Unlock()
 						continue
 					}
-					
+
 					// 更新路由
 					*config = *newConfig
 					configLock.Unlock()
@@ -155,7 +172,11 @@ func main() {
 			}
 		}
 	}()
-	
-	fmt.Println("Starting mock server on :8080")
-	r.Run(":8080")
+
+	ip, err := getLocalIP()
+	if err != nil {
+		log.Printf("Failed to get local IP: %v", err)
+	}
+	fmt.Printf("Starting mock server on http://%s:%d\n", ip, config.Port)
+	r.Run(fmt.Sprintf(":%d", config.Port))
 }
